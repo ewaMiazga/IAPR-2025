@@ -9,6 +9,9 @@ from collections import defaultdict
 import os
 import csv
 
+from torchmetrics import ConfusionMatrix
+from mlxtend.plotting import plot_confusion_matrix
+
 def get_device():
     """
     Get the appropriate device for tensor computations.
@@ -36,4 +39,25 @@ def convert_for_submission(data, output_file):
     """
     ...
     return ...
+
+def get_confussion_matrix(y_pred_tensor, test_data, class_names):
+    """
+    Generate and plot a confusion matrix for the model predictions.
+    """
+
+    # 2. steup confusion instance and compare predictions to targets
+    confmat = ConfusionMatrix(num_classes=len(class_names), task="multilabel")
+    confmat_tensor = confmat(preds=y_pred_tensor, target=test_data.targets)
+
+    # 3.Plot a conf martrix
+    fig, ax = plot_confusion_matrix(conf_mat=confmat_tensor.numpy(),
+                                    colorbar=True,
+                                    show_normed=True,
+                                    figsize=(10, 7),
+                                    class_names=class_names)
+    
+    # 4. Save the confusion matrix plot
+    plt.savefig("confusion_matrix.png")
+    plt.show()
+
 

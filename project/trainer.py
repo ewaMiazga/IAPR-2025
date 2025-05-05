@@ -5,13 +5,32 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import os
+from models.cnn import SimpleCNN
 
 # Directory to save the model
 DIR = "output/"
 
 class Trainer:
-    def __init__():
-        ...
+    def __init__(self, model=None, loss_fn=None, optimizer=None,
+                 train_loader=None, val_loader=None, test_loader=None):
+        """
+        Initialize the Trainer class.
+        Parameters:
+        - model (torch.nn.Module): The model to be trained.
+        - loss_fn (torch.nn.Module): The loss function to be used.
+        - optimizer (torch.optim.Optimizer): The optimizer to be used.
+        - train_loader (torch.utils.data.DataLoader): DataLoader for the training set.
+        - val_loader (torch.utils.data.DataLoader): DataLoader for the validation set.
+        - test_loader (torch.utils.data.DataLoader): DataLoader for the test set.
+        """
+        self.model = model
+        self.criterion = loss_fn
+        self.optimizer = optimizer
+        self.train_loader = train_loader
+        self.val_loader = val_loader
+        self.test_loader = test_loader
+        self.device = self.get_device()
+        self.model.to(self.device)
     
     def train(self):
         """
@@ -66,7 +85,8 @@ class Trainer:
                 outputs = self.model(inputs)
                 
                 # Get the predicted class - multiclass classification
-                _, predicted = torch.max(outputs.data, 1)
+                probs = torch.sigmoid(outputs)
+                predicted = (probs > 0.5).float()
                 
                 # Append the predictions to the list
                 predictions.append(predicted.cpu().numpy())
@@ -123,14 +143,39 @@ class Trainer:
                 total_loss += loss.item()
                 
                 # Get the predicted class - multiclass classification
-                _, predicted = torch.max(outputs.data, 1)
+                probs = torch.sigmoid(outputs)
+                predicted = (probs > 0.5).float()
                 
                 # Update the total and correct counts
+                correct += (predicted == labels.int()).all(dim=1).sum().item()
                 total += labels.size(0)
-                correct += (predicted == labels).sum().item()
         
         # Compute the average loss and accuracy
         avg_loss = total_loss / len(self.val_loader)
         accuracy = 100 * correct / total
         
         return avg_loss, accuracy
+    
+if __name__ == "__main__":
+    # Example usage
+    trainer = Trainer()
+
+    # CNN model
+    model = SimpleCNN(input_shape=3, hidden_units=64, output_shape=10)
+    loss_fn = nn.BCEWithLogitsLoss()
+    optimizer = torch.optim.SGD(params=model.parameters(),
+                             lr=0.1)
+
+    trainer = Trainer(model=model,
+                  loss_fn=loss_fn,
+                  optimizer=optimizer,
+                  train_loader=train_loader,
+                  val_loader=val_loader,
+                  test_loader=test_loader)
+    
+    trainer.train()
+    predictions = trainer.predict()
+    print(predictions)
+    trainer.save_model()
+    avg_loss, accuracy = trainer.evaluate()
+    print(f"Average Loss: {avg_loss}, Accuracy: {accuracy}%")
