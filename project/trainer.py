@@ -11,8 +11,8 @@ from models.cnn import SimpleCNN
 DIR = "output/"
 
 class Trainer:
-    def __init__(self, model=None, loss_fn=None, optimizer=None,
-                 train_loader=None, val_loader=None, test_loader=None):
+    def __init__(self, model=None, loss_fn=None, optimizer=None, num_epochs=None,
+                 train_loader=None, val_loader=None, test_loader=None, device='cpu'):
         """
         Initialize the Trainer class.
         Parameters:
@@ -26,10 +26,11 @@ class Trainer:
         self.model = model
         self.criterion = loss_fn
         self.optimizer = optimizer
+        self.num_epochs = num_epochs
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.test_loader = test_loader
-        self.device = self.get_device()
+        self.device = device
         self.model.to(self.device)
     
     def train(self):
@@ -40,26 +41,32 @@ class Trainer:
         # Set the model to training mode
         self.model.train()
         
-        # Iterate over the training data
-        for batch in self.train_loader:
-            # Get the inputs and labels
-            inputs, labels = batch
-            
-            # Move the inputs and labels to the device
-            inputs, labels = inputs.to(self.device), labels.to(self.device)
-            
-            # Zero the gradients
-            self.optimizer.zero_grad()
-            
-            # Forward pass
-            outputs = self.model(inputs)
-            
-            # Compute the loss
-            loss = self.criterion(outputs, labels)
-            
-            # Backward pass and optimization
-            loss.backward()
-            self.optimizer.step()
+        for epoch in range(self.num_epochs):
+            epoch_loss = 0.0
+            # Iterate over the training data
+            for batch in self.train_loader:
+                # Get the inputs and labels
+                inputs, labels = batch
+                
+                # Move the inputs and labels to the device
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
+                
+                # Zero the gradients
+                self.optimizer.zero_grad()
+                
+                # Forward pass
+                outputs = self.model(inputs)
+                
+                # Compute the loss
+                loss = self.criterion(outputs, labels)
+                
+                # Backward pass and optimization
+                loss.backward()
+                self.optimizer.step()
+                epoch_loss += loss.item()
+
+            avg_epoch_loss = epoch_loss / len(self.train_loader)
+            print(f"Epoch [{epoch+1}/{self.num_epochs}], Loss: {avg_epoch_loss:.4f}")
 
     def predict(self):
         """
@@ -77,7 +84,7 @@ class Trainer:
             for batch in self.test_loader:
                 # Get the inputs
                 inputs = batch
-                
+
                 # Move the inputs to the device
                 inputs = inputs.to(self.device)
                 
@@ -86,7 +93,8 @@ class Trainer:
                 
                 # Get the predicted class - multiclass classification
                 probs = torch.sigmoid(outputs)
-                predicted = (probs > 0.5).float()
+                #predicted = (probs > 0.5).float()
+                predicted = probs.float()
                 
                 # Append the predictions to the list
                 predictions.append(predicted.cpu().numpy())
@@ -155,27 +163,3 @@ class Trainer:
         accuracy = 100 * correct / total
         
         return avg_loss, accuracy
-    
-if __name__ == "__main__":
-    # Example usage
-    trainer = Trainer()
-
-    # CNN model
-    model = SimpleCNN(input_shape=3, hidden_units=64, output_shape=10)
-    loss_fn = nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.SGD(params=model.parameters(),
-                             lr=0.1)
-
-    trainer = Trainer(model=model,
-                  loss_fn=loss_fn,
-                  optimizer=optimizer,
-                  train_loader=train_loader,
-                  val_loader=val_loader,
-                  test_loader=test_loader)
-    
-    trainer.train()
-    predictions = trainer.predict()
-    print(predictions)
-    trainer.save_model()
-    avg_loss, accuracy = trainer.evaluate()
-    print(f"Average Loss: {avg_loss}, Accuracy: {accuracy}%")
