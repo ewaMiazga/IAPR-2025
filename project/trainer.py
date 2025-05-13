@@ -6,12 +6,14 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import os
 from models.cnn import SimpleCNN
+import numpy as np
+from sklearn.metrics import f1_score
 
 # Directory to save the model
 DIR = "output/"
 
 class Trainer:
-    def __init__(self, model=None, loss_fn=None, optimizer=None, num_epochs=None,
+    def __init__(self, model=None, loss_fn=None, optimizer=None, scheduler=None, num_epochs=None,
                  train_loader=None, val_loader=None, test_loader=None, device='cpu'):
         """
         Initialize the Trainer class.
@@ -26,6 +28,7 @@ class Trainer:
         self.model = model
         self.criterion = loss_fn
         self.optimizer = optimizer
+        self.scheduler = scheduler
         self.num_epochs = num_epochs
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -40,6 +43,8 @@ class Trainer:
         
         # Set the model to training mode
         self.model.train()
+        val_losses = []
+        val_metrics = []
         
         for epoch in range(self.num_epochs):
             epoch_loss = 0.0
@@ -68,6 +73,18 @@ class Trainer:
             avg_epoch_loss = epoch_loss / len(self.train_loader)
             print(f"Epoch [{epoch+1}/{self.num_epochs}], Loss: {avg_epoch_loss:.4f}")
 
+            # === Validation ===
+            val_loss, val_metric = self.evaluate()  # accuracy or MAE or whatever
+            val_losses.append(val_loss)
+            val_metrics.append(val_metric)
+
+            # === Scheduler step ===
+            if self.scheduler is not None:
+                if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                    self.scheduler.step(val_loss)  # based on validation loss
+                else:
+                    self.scheduler.step()
+
     def predict(self):
         """
         Make predictions using the trained model.
@@ -91,10 +108,8 @@ class Trainer:
                 # Forward pass
                 outputs = self.model(inputs)
                 
-                # Get the predicted class - multiclass classification
-                probs = torch.sigmoid(outputs)
-                #predicted = (probs > 0.5).float()
-                predicted = probs.float()
+                outputs = torch.relu(outputs)      # Optional: avoid negative predictions
+                predicted = torch.round(outputs)  # Optional: round to nearest integer
                 
                 # Append the predictions to the list
                 predictions.append(predicted.cpu().numpy())
@@ -151,8 +166,10 @@ class Trainer:
                 total_loss += loss.item()
                 
                 # Get the predicted class - multiclass classification
-                probs = torch.sigmoid(outputs)
-                predicted = (probs > 0.5).float()
+                outputs = torch.relu(outputs)      # Optional: avoid negative predictions
+                predicted = torch.round(outputs)  # Optional: round to nearest integer
+
+                print("predicted for first sample", predicted[0])
                 
                 # Update the total and correct counts
                 correct += (predicted == labels.int()).all(dim=1).sum().item()
@@ -163,3 +180,5 @@ class Trainer:
         accuracy = 100 * correct / total
         
         return avg_loss, accuracy
+    
+    
