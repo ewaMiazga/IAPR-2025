@@ -49,12 +49,17 @@ class Trainer:
         for epoch in range(self.num_epochs):
             epoch_loss = 0.0
             # Iterate over the training data
-            for batch in self.train_loader:
-                # Get the inputs and labels
-                inputs, labels = batch
-                
-                # Move the inputs and labels to the device
-                inputs, labels = inputs.to(self.device), labels.to(self.device)
+            for images, targets in self.train_loader:
+
+                ## coco
+                #inputs = torch.stack(images).to(self.device)
+
+                ## Extract the first label from each target dict
+                #labels = torch.tensor([t['labels'][0].item() - 1 for t in targets], dtype=torch.long).to(self.device)
+
+                ## patches 
+                inputs = images.to(self.device)          # Already stacked tensors
+                labels = targets.to(self.device)          # Already tensor of shape [batch_size]
                 
                 # Zero the gradients
                 self.optimizer.zero_grad()
@@ -98,18 +103,22 @@ class Trainer:
         # Disable gradient calculation for inference
         with torch.no_grad():
             # Iterate over the test data
-            for batch in self.test_loader:
+            for images in self.test_loader:
                 # Get the inputs
-                inputs = batch
+                ## coco 
+                #inputs = torch.stack(images).to(self.device)
+
+                ## patches
+                inputs = images.to(self.device)          # Already stacked tensors
+
 
                 # Move the inputs to the device
-                inputs = inputs.to(self.device)
+                #inputs = inputs.to(self.device)
                 
                 # Forward pass
                 outputs = self.model(inputs)
                 
-                outputs = torch.relu(outputs)      # Optional: avoid negative predictions
-                predicted = torch.round(outputs)  # Optional: round to nearest integer
+                _, predicted = torch.max(outputs, dim=1)
                 
                 # Append the predictions to the list
                 predictions.append(predicted.cpu().numpy())
@@ -149,12 +158,17 @@ class Trainer:
         # Disable gradient calculation for evaluation
         with torch.no_grad():
             # Iterate over the validation data
-            for batch in self.val_loader:
-                # Get the inputs and labels
-                inputs, labels = batch
+            for images, targets in self.val_loader:
+
+                ## coco
+                # inputs = torch.stack(images).to(self.device)
+
+                # # Extract the first label from each target dict
+                # labels = torch.tensor([t['labels'][0].item() - 1 for t in targets], dtype=torch.long).to(self.device)
                 
-                # Move the inputs and labels to the device
-                inputs, labels = inputs.to(self.device), labels.to(self.device)
+                ## patches
+                inputs = images.to(self.device)          # Already stacked tensors
+                labels = targets.to(self.device)          # Already tensor of shape [batch_size]
                 
                 # Forward pass
                 outputs = self.model(inputs)
@@ -166,13 +180,10 @@ class Trainer:
                 total_loss += loss.item()
                 
                 # Get the predicted class - multiclass classification
-                outputs = torch.relu(outputs)      # Optional: avoid negative predictions
-                predicted = torch.round(outputs)  # Optional: round to nearest integer
-
-                print("predicted for first sample", predicted[0])
+                _, predicted = torch.max(outputs, dim=1)
                 
                 # Update the total and correct counts
-                correct += (predicted == labels.int()).all(dim=1).sum().item()
+                correct += (predicted == labels).sum().item()
                 total += labels.size(0)
         
         # Compute the average loss and accuracy
