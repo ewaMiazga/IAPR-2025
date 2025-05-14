@@ -10,6 +10,8 @@ import os
 import csv
 import os
 import zipfile
+import os
+import zipfile
 
 from torchmetrics import ConfusionMatrix
 from mlxtend.plotting import plot_confusion_matrix
@@ -62,6 +64,20 @@ def get_confussion_matrix(y_pred_tensor, test_data, class_names):
     plt.savefig("confusion_matrix.png")
     plt.show()
 
+def unzip_to(zip_path: str, dest_dir: str) -> None:
+    """
+    Extracts all contents of the ZIP file at zip_path into the directory dest_dir.
+
+    Args:
+        zip_path: Path to the .zip archive.
+        dest_dir: Directory to extract files into (will be created if it doesn't exist).
+    """
+    # Ensure the destination directory exists
+    os.makedirs(dest_dir, exist_ok=True)
+
+    # Open and extract all
+    with zipfile.ZipFile(zip_path, 'r') as archive:
+        archive.extractall(dest_dir)
 def unzip_to(zip_path: str, dest_dir: str) -> None:
     """
     Extracts all contents of the ZIP file at zip_path into the directory dest_dir.
