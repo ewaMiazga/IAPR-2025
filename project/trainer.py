@@ -76,6 +76,13 @@ class Trainer:
                     # Forward pass and compute loss
                     loss_dict = self.model(images, labels)
                     loss = sum(loss_i for loss_i in loss_dict.values())
+
+                elif self.model_name == "SSDLiteMobileNetV3":
+                    images = list(img.to(self.device) for img in images)
+                    labels = [{k: v.to(self.device) for k, v in t.items()} for t in labels]
+
+                    loss_dict = self.model(images, labels)
+                    loss = sum(loss_i for loss_i in loss_dict.values())
                 
                 # Zero the gradients
                 self.optimizer.zero_grad()
@@ -116,16 +123,19 @@ class Trainer:
         with torch.no_grad():
             for batch in tqdm(self.test_loader):
                 if self.model_name == "SimpleCNN":
-                    # batch: Tensor [B, C, H, W]
-                    if isinstance(batch, (tuple, list)):
-                        images = batch[0]  # Drop labels if included
-                    else:
-                        images = batch
-
+                    
+                    images, parent_ids, patch_names = batch
+            
                     images = images.to(self.device)
                     outputs = self.model(images)
-                    preds = torch.argmax(outputs, dim=1)
-                    predictions.extend(preds.cpu().tolist())
+                    preds = torch.argmax(outputs, dim=1).cpu().tolist()
+
+                    for parent, patch, pred in zip(parent_ids, patch_names, preds):
+                        predictions.append({
+                            "image_id": parent,
+                            "patch_name": patch,
+                            "pred_class": pred
+                        })
 
                 elif self.model_name == "MobileNetV3":
                     # batch: list of image tensors
@@ -146,6 +156,24 @@ class Trainer:
                             'boxes': out['boxes'].cpu(),
                             'labels': out['labels'].cpu(),
                             'scores': out['scores'].cpu()
+                        })
+
+                elif self.model_name == "SSDLiteMobileNetV3":
+                    images, filenames = batch
+                    images = list(img.to(self.device) for img in images)
+                    outputs = self.model(images)
+
+                    for filename, output in zip(filenames, outputs):
+                        boxes = output["boxes"].cpu()
+                        scores = output["scores"].cpu()
+                        labels = output["labels"].cpu()
+
+                        keep = scores > 0.0
+                        predictions.append({
+                            "filename": filename,
+                            "boxes": boxes[keep],
+                            "labels": labels[keep],
+                            "scores": scores[keep]
                         })
 
                 else:
@@ -224,11 +252,40 @@ class Trainer:
                         all_preds.extend(pred_labels)
                         all_targets.extend(true_labels)
 
+                elif self.model_name == "SSDLiteMobileNetV3":
+                    image_tensors = [img.to(self.device) for img in images]
+                    targets = [{k: v.to(self.device) for k, v in t.items()} for t in labels]
+
+                    # Save current mode
+                    was_training = self.model.training
+
+                    # Enable training temporarily to get loss (but disable gradients)
+                    self.model.train()
+                    with torch.no_grad():
+                        loss_dict = self.model(image_tensors, targets)
+                        loss = sum(loss for loss in loss_dict.values())
+                        total_loss += loss.item()
+                        num_batches += 1
+
+                    # Restore mode to eval
+                    if not was_training:
+                        self.model.eval()
+
+                    # Get predictions
+                    with torch.no_grad():
+                        outputs = self.model(image_tensors)
+                        for pred, target in zip(outputs, targets):
+                            pred_labels = pred["labels"].detach().cpu().tolist()
+                            true_labels = target["labels"].detach().cpu().tolist()
+                            all_preds.extend(pred_labels)
+                            all_targets.extend(true_labels)
+
+
                 else:
                     raise ValueError(f"Unknown model name: {self.model_name}")
 
-                total_loss += loss.item()
-                num_batches += 1
+            total_loss += loss.item()
+            num_batches += 1
 
         avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
         overall_accuracy = accuracy_score(all_targets, all_preds)

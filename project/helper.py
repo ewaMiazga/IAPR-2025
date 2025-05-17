@@ -12,6 +12,7 @@ import os
 import zipfile
 import os
 import zipfile
+import cv2
 
 from torchmetrics import ConfusionMatrix
 from mlxtend.plotting import plot_confusion_matrix
@@ -117,3 +118,60 @@ def compute_mean_std(loader):
     mean /= total_images
     std /= total_images
     return mean, std
+
+
+def draw_boxes_on_image(image_path, boxes, labels, scores, label_map_inv, threshold=0.0):
+    """
+    Draw bounding boxes on the image and return the modified image.
+    Args:
+        image_path (str): Path to the image file.
+        boxes (list): List of bounding boxes.
+        labels (list): List of labels corresponding to the boxes.
+        scores (list): List of scores corresponding to the boxes.
+        label_map_inv (dict): Inverted label map for converting labels to class names.
+        threshold (float): Score threshold for displaying boxes.
+    """
+    image = cv2.imread(image_path)
+    for box, label, score in zip(boxes, labels, scores):
+        if score < threshold:
+            continue
+        x1, y1, x2, y2 = [int(coord) for coord in box.tolist()]
+        class_name = label_map_inv.get(label.item(), str(label.item()))
+        text = f"{class_name} {score:.2f}"
+
+        # Draw box and label
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.putText(image, text, (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+    return image
+
+
+def save_patches(image_path, boxes, labels, scores, label_map_inv, dest_dir, threshold=0.5):
+    """
+    Save patches of the image based on the bounding boxes, labels, and scores.
+    Args:
+        image_path (str): Path to the image file.
+        boxes (list): List of bounding boxes.
+        labels (list): List of labels corresponding to the boxes.
+        scores (list): List of scores corresponding to the boxes.
+        label_map_inv (dict): Inverted label map for converting labels to class names.
+        dest_dir (str): Directory to save the patches.
+        threshold (float): Score threshold for saving patches.
+    """
+    img = cv2.imread(image_path)
+    image_name = os.path.splitext(os.path.basename(image_path))[0]
+
+    # Create subfolder
+    subfolder = os.path.join(dest_dir, image_name)
+    os.makedirs(subfolder, exist_ok=True)
+
+    for i, (box, label, score) in enumerate(zip(boxes, labels, scores)):
+        if score < threshold:
+            continue
+
+        x1, y1, x2, y2 = [int(coord) for coord in box.tolist()]
+        patch = img[y1:y2, x1:x2]
+        label_name = label_map_inv.get(label.item(), str(label.item()))
+        patch_filename = f"{i:03d}.jpg"
+        cv2.imwrite(os.path.join(subfolder, patch_filename), patch)
