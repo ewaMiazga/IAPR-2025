@@ -34,7 +34,7 @@ class LightFasterRCNNMobileNetV3(torch.nn.Module):
         )
 
         # ROI Box Head
-        representation_size = 512
+        representation_size = 640
         self.box_head = TwoMLPHead(
             in_channels=fpn_out_channels * 7 * 7,
             representation_size=representation_size
