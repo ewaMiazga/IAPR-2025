@@ -255,12 +255,6 @@ def patches_to_ImageFolder(src, dest):
             else:
                 print(f"⚠️ Missing file: {src_file}")
 
-def get_transform():
-    return transforms.Compose([
-        transforms.Resize((400, 600)),  # Resize to 1400x1400
-        transforms.ToTensor(),  # Converts PIL image or ndarray to tensor
-    ])
-
 def collate_fn(batch):
     images, targets = zip(*batch)
     converted_targets = []
@@ -270,3 +264,32 @@ def collate_fn(batch):
         labels = torch.as_tensor([obj['category_id'] for obj in target], dtype=torch.int64)
         converted_targets.append({'boxes': boxes, 'labels': labels})
     return list(images), converted_targets
+
+def save_patches(image_path, boxes, labels, scores, label_map_inv, dest_dir, threshold=0.5):
+    """
+    Save patches of the image based on the bounding boxes, labels, and scores.
+    Args:
+        image_path (str): Path to the image file.
+        boxes (list): List of bounding boxes.
+        labels (list): List of labels corresponding to the boxes.
+        scores (list): List of scores corresponding to the boxes.
+        label_map_inv (dict): Inverted label map for converting labels to class names.
+        dest_dir (str): Directory to save the patches.
+        threshold (float): Score threshold for saving patches.
+    """
+    img = cv2.imread(image_path)
+    image_name = os.path.splitext(os.path.basename(image_path))[0]
+
+    # Create subfolder
+    subfolder = os.path.join(dest_dir, image_name)
+    os.makedirs(subfolder, exist_ok=True)
+
+    for i, (box, label, score) in enumerate(zip(boxes, labels, scores)):
+        if score < threshold:
+            continue
+
+        x1, y1, x2, y2 = [int(coord) for coord in box.tolist()]
+        patch = img[y1:y2, x1:x2]
+        label_name = label_map_inv.get(label.item(), str(label.item()))
+        patch_filename = f"{i:03d}.jpg"
+        cv2.imwrite(os.path.join(subfolder, patch_filename), patch)
