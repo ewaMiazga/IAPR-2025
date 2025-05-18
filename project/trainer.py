@@ -8,6 +8,8 @@ from models.cnn import SimpleCNN
 import numpy as np
 from sklearn.metrics import f1_score, accuracy_score
 from tqdm import tqdm
+from PIL import Image
+
 
 # Directory to save the model
 DIR = "output/"
@@ -102,6 +104,8 @@ class Trainer:
             val_f1_per_class.append(per_class_f1)
             val_losses.append(val_loss)
 
+            self.model.train()
+
             # === Scheduler step ===
             if self.scheduler is not None:
                 if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
@@ -168,7 +172,7 @@ class Trainer:
                         scores = output["scores"].cpu()
                         labels = output["labels"].cpu()
 
-                        keep = scores > 0.0
+                        keep = scores > 0.1
                         predictions.append({
                             "filename": filename,
                             "boxes": boxes[keep],
@@ -201,6 +205,19 @@ class Trainer:
             self.model.load_state_dict(torch.load(os.path.join(DIR, model_name)))
         else:
             raise FileNotFoundError("Model file not found.")
+        
+    def compute_iou(self, boxA, boxB):
+        xA = max(boxA[0], boxB[0])
+        yA = max(boxA[1], boxB[1])
+        xB = min(boxA[2], boxB[2])
+        yB = min(boxA[3], boxB[3])
+
+        interArea = max(0, xB - xA) * max(0, yB - yA)
+        boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+        boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+
+        iou = interArea / float(boxAArea + boxBArea - interArea + 1e-6)
+        return iou
 
     def evaluate(self):
         """
@@ -215,10 +232,14 @@ class Trainer:
         """
         self.model.eval()
 
-        all_preds = []
+        all_preds = 0
+        all_preds_list = []
         all_targets = []
         total_loss = 0.0
         num_batches = 0
+        total_gts = 0
+        correct = 0
+
 
         with torch.no_grad():
             for images, labels in tqdm(self.val_loader):
@@ -232,65 +253,96 @@ class Trainer:
                     loss = self.criterion(outputs, targets)
                     preds = torch.argmax(outputs, dim=1)
 
-                    all_preds.extend(preds.cpu().tolist())
+                    all_preds_list.extend(preds.cpu().tolist())
                     all_targets.extend(targets.cpu().tolist())
 
-                elif self.model_name == "MobileNetV3":
-                    # Object detection
-                    image_tensors = [img.to(self.device) for img in images]
-                    targets = [{k: v.to(self.device) for k, v in t.items()} for t in labels]
+                # elif self.model_name == "MobileNetV3":
+                #     # Object detection
+                #     image_tensors = [img.to(self.device) for img in images]
+                #     targets = [{k: v.to(self.device) for k, v in t.items()} for t in labels]
 
+                #     loss_dict = self.model(image_tensors, targets)
+                #     loss = sum(loss for loss in loss_dict.values())
+
+                #     outputs = self.model(image_tensors)  # for predictions
+
+                #     for pred, target in zip(outputs, targets):
+                #         pred_labels = pred['labels'].detach().cpu().tolist()
+                #         true_labels = target['labels'].detach().cpu().tolist()
+
+                #         all_preds.extend(pred_labels)
+                #         all_targets.extend(true_labels)
+
+                elif self.model_name == "SSDLiteMobileNetV3" or self.model_name == "MobileNetV3":
+                    iou_threshold = 0.5
+                    targets = labels
+
+                    image_tensors = [img.to(self.device) for img in images]
+                    targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
+
+                    # === Get loss for validation ===
+                    self.model.train()
                     loss_dict = self.model(image_tensors, targets)
                     loss = sum(loss for loss in loss_dict.values())
+                    total_loss += loss.item()
+                    num_batches += 1
+                    self.model.eval()
 
-                    outputs = self.model(image_tensors)  # for predictions
+                    # === Get predictions ===
+                    outputs = self.model(image_tensors)
 
                     for pred, target in zip(outputs, targets):
-                        pred_labels = pred['labels'].detach().cpu().tolist()
-                        true_labels = target['labels'].detach().cpu().tolist()
+                        pred_boxes = pred['boxes'].cpu()
+                        pred_scores = pred['scores'].cpu()
+                        pred_labels = pred['labels'].cpu()
+                        gt_boxes = target['boxes'].cpu()
+                        gt_labels = target['labels'].cpu()
 
-                        all_preds.extend(pred_labels)
-                        all_targets.extend(true_labels)
+                        # Filter low-confidence predictions (optional)
+                        keep = pred_scores > 0.3
+                        pred_boxes = pred_boxes[keep]
+                        pred_labels = pred_labels[keep]
 
-                elif self.model_name == "SSDLiteMobileNetV3":
-                    image_tensors = [img.to(self.device) for img in images]
-                    targets = [{k: v.to(self.device) for k, v in t.items()} for t in labels]
+                        all_preds += len(pred_labels)
+                        total_gts += len(gt_labels)
 
-                    # Save current mode
-                    was_training = self.model.training
+                        matched_pred_idxs = set()
+                        for gt_idx, gt_box in enumerate(gt_boxes):
+                            best_iou = 0
+                            best_pred_idx = -1
+                            for pred_idx, pred_box in enumerate(pred_boxes):
+                                if pred_idx in matched_pred_idxs:
+                                    continue
+                                iou = self.compute_iou(gt_box, pred_box)
+                                if iou > best_iou:
+                                    best_iou = iou
+                                    best_pred_idx = pred_idx
+                            if best_iou >= iou_threshold:
+                                matched_pred_idxs.add(best_pred_idx)
+                                if pred_labels[best_pred_idx] == gt_labels[gt_idx]:
+                                    correct += 1
 
-                    # Enable training temporarily to get loss (but disable gradients)
-                    self.model.train()
-                    with torch.no_grad():
-                        loss_dict = self.model(image_tensors, targets)
-                        loss = sum(loss for loss in loss_dict.values())
-                        total_loss += loss.item()
-                        num_batches += 1
-
-                    # Restore mode to eval
-                    if not was_training:
-                        self.model.eval()
-
-                    # Get predictions
-                    with torch.no_grad():
-                        outputs = self.model(image_tensors)
-                        for pred, target in zip(outputs, targets):
-                            pred_labels = pred["labels"].detach().cpu().tolist()
-                            true_labels = target["labels"].detach().cpu().tolist()
-                            all_preds.extend(pred_labels)
-                            all_targets.extend(true_labels)
-
-
+                
                 else:
                     raise ValueError(f"Unknown model name: {self.model_name}")
 
             total_loss += loss.item()
+            print(f"Batch [{num_batches}], Loss: {total_loss:.4f}")
+
             num_batches += 1
 
+
+        if self.model_name == "SSDLiteMobileNetV3" or self.model_name == "MobileNetV3":
+            avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
+            precision = correct / all_preds if all_preds > 0 else 0.0
+            recall = correct / total_gts if total_gts > 0 else 0.0
+            f1 = 2 * precision * recall / (precision + recall + 1e-6)
+            return avg_loss, precision, f1, None
+
         avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
-        overall_accuracy = accuracy_score(all_targets, all_preds)
-        overall_f1 = f1_score(all_targets, all_preds, average='weighted')
-        per_class_f1 = f1_score(all_targets, all_preds, average=None)
+        overall_accuracy = accuracy_score(all_targets, all_preds_list)
+        overall_f1 = f1_score(all_targets, all_preds_list, average='weighted')
+        per_class_f1 = f1_score(all_targets, all_preds_list, average=None)
 
         return avg_loss, overall_accuracy, overall_f1, per_class_f1
         

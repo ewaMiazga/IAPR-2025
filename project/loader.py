@@ -9,6 +9,7 @@ from tqdm import tqdm
 import torchvision.transforms as T
 import json
 import xml.etree.ElementTree as ET
+from PIL import Image
 
 # class CustomIAPRDataloader:
 #     def __init__(self, base_dir, transform=None):
