@@ -9,6 +9,7 @@ import numpy as np
 from sklearn.metrics import f1_score, accuracy_score
 from tqdm import tqdm
 from PIL import Image
+from collections import Counter
 
 
 # Directory to save the model
@@ -156,10 +157,15 @@ class Trainer:
                     outputs = self.model(image_tensors)
 
                     for out in outputs:
+                        boxes = out["boxes"].cpu()
+                        scores = out["scores"].cpu()
+                        labels = out["labels"].cpu()
+
+                        keep = scores > 0.6
                         predictions.append({
-                            'boxes': out['boxes'].cpu(),
-                            'labels': out['labels'].cpu(),
-                            'scores': out['scores'].cpu()
+                            'boxes': boxes[keep],
+                            'labels': labels[keep],
+                            'scores': scores[keep]
                         })
 
                 elif self.model_name == "SSDLiteMobileNetV3":
@@ -197,12 +203,12 @@ class Trainer:
             
         torch.save(self.model.state_dict(), os.path.join(DIR, f'{model_name}.pth'))
 
-    def load_model(self, model_name):
+    def load_model(self, DIR="output/", model_name=None):
         """
         Load the model from the specified directory.
         """
         if os.path.exists(os.path.join(DIR, model_name)):
-            self.model.load_state_dict(torch.load(os.path.join(DIR, model_name)))
+            self.model.load_state_dict(torch.load(os.path.join(DIR, model_name), map_location=torch.device(self.device)))
         else:
             raise FileNotFoundError("Model file not found.")
         
@@ -240,6 +246,12 @@ class Trainer:
         total_gts = 0
         correct = 0
 
+        # Added for per-class F1 (detection models)
+        all_pred_labels_matched = []
+        all_gt_labels_matched = []
+
+        stored_sample = None
+        stored_samples = []
 
         with torch.no_grad():
             for images, labels in tqdm(self.val_loader):
@@ -250,28 +262,13 @@ class Trainer:
                     targets = labels.to(self.device)
 
                     outputs = self.model(inputs)
+
+                    # Compute the loss
                     loss = self.criterion(outputs, targets)
                     preds = torch.argmax(outputs, dim=1)
 
                     all_preds_list.extend(preds.cpu().tolist())
                     all_targets.extend(targets.cpu().tolist())
-
-                # elif self.model_name == "MobileNetV3":
-                #     # Object detection
-                #     image_tensors = [img.to(self.device) for img in images]
-                #     targets = [{k: v.to(self.device) for k, v in t.items()} for t in labels]
-
-                #     loss_dict = self.model(image_tensors, targets)
-                #     loss = sum(loss for loss in loss_dict.values())
-
-                #     outputs = self.model(image_tensors)  # for predictions
-
-                #     for pred, target in zip(outputs, targets):
-                #         pred_labels = pred['labels'].detach().cpu().tolist()
-                #         true_labels = target['labels'].detach().cpu().tolist()
-
-                #         all_preds.extend(pred_labels)
-                #         all_targets.extend(true_labels)
 
                 elif self.model_name == "SSDLiteMobileNetV3" or self.model_name == "MobileNetV3":
                     iou_threshold = 0.5
@@ -291,6 +288,20 @@ class Trainer:
                     # === Get predictions ===
                     outputs = self.model(image_tensors)
 
+                    ## stored sample
+                    sample_preds = outputs[0]
+                    sample_gts = targets[0]
+
+                    stored_sample = {
+                        "image_tensor": image_tensors[0].cpu(),  # store image if you want to visualize it
+                        "pred_boxes": sample_preds['boxes'].cpu(),
+                        "pred_scores": sample_preds['scores'].cpu(),
+                        "pred_labels": sample_preds['labels'].cpu(),
+                        "gt_boxes": sample_gts['boxes'].cpu(),
+                        "gt_labels": sample_gts['labels'].cpu(),
+                    }
+                    stored_samples.append(stored_sample)
+
                     for pred, target in zip(outputs, targets):
                         pred_boxes = pred['boxes'].cpu()
                         pred_scores = pred['scores'].cpu()
@@ -299,7 +310,7 @@ class Trainer:
                         gt_labels = target['labels'].cpu()
 
                         # Filter low-confidence predictions (optional)
-                        keep = pred_scores > 0.3
+                        keep = pred_scores > 0.6
                         pred_boxes = pred_boxes[keep]
                         pred_labels = pred_labels[keep]
 
@@ -307,6 +318,7 @@ class Trainer:
                         total_gts += len(gt_labels)
 
                         matched_pred_idxs = set()
+                        #print(len(pred_labels), len(pred_boxes), len(gt_labels), len(gt_boxes))
                         for gt_idx, gt_box in enumerate(gt_boxes):
                             best_iou = 0
                             best_pred_idx = -1
@@ -319,9 +331,20 @@ class Trainer:
                                     best_pred_idx = pred_idx
                             if best_iou >= iou_threshold:
                                 matched_pred_idxs.add(best_pred_idx)
-                                if pred_labels[best_pred_idx] == gt_labels[gt_idx]:
+                                pred_label = pred_labels[best_pred_idx].item()
+                                gt_label = gt_labels[gt_idx].item()
+
+                                if pred_label == gt_label:
                                     correct += 1
 
+                                all_pred_labels_matched.append(pred_label)
+                                all_gt_labels_matched.append(gt_label)
+                            else:
+                                # No match found → false negative
+                                gt_label = gt_labels[gt_idx].item()
+                                all_gt_labels_matched.append(gt_label)
+                                all_pred_labels_matched.append(-1)  # unmatched
+                            #print(f"GT: {gt_label}, Pred: {pred_label}, IOU: {best_iou:.4f}")
                 
                 else:
                     raise ValueError(f"Unknown model name: {self.model_name}")
@@ -334,10 +357,20 @@ class Trainer:
 
         if self.model_name == "SSDLiteMobileNetV3" or self.model_name == "MobileNetV3":
             avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
-            precision = correct / all_preds if all_preds > 0 else 0.0
-            recall = correct / total_gts if total_gts > 0 else 0.0
-            f1 = 2 * precision * recall / (precision + recall + 1e-6)
-            return avg_loss, precision, f1, None
+            # precision = correct / all_preds if all_preds > 0 else 0.0
+            # recall = correct / total_gts if total_gts > 0 else 0.0
+            # f1 = 2 * precision * recall / (precision + recall + 1e-6)
+
+            overall_accuracy = correct / len(all_gt_labels_matched) if all_gt_labels_matched else 0.0
+            overall_f1 = f1_score(all_gt_labels_matched, all_pred_labels_matched, average="weighted", zero_division=0)
+            #return avg_loss, precision, f1, None
+            # Compute per-class F1
+            if all_pred_labels_matched and all_gt_labels_matched:
+                per_class_f1 = f1_score(all_gt_labels_matched, all_pred_labels_matched, average=None)
+            else:
+                per_class_f1 = None
+
+            return avg_loss, overall_accuracy, overall_f1, per_class_f1, stored_samples
 
         avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
         overall_accuracy = accuracy_score(all_targets, all_preds_list)
