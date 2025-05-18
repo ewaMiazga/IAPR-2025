@@ -156,10 +156,15 @@ class Trainer:
                     outputs = self.model(image_tensors)
 
                     for out in outputs:
+                        boxes = out["boxes"].cpu()
+                        scores = out["scores"].cpu()
+                        labels = out["labels"].cpu()
+
+                        keep = scores > 0.6
                         predictions.append({
-                            'boxes': out['boxes'].cpu(),
-                            'labels': out['labels'].cpu(),
-                            'scores': out['scores'].cpu()
+                            'boxes': boxes[keep],
+                            'labels': labels[keep],
+                            'scores': scores[keep]
                         })
 
                 elif self.model_name == "SSDLiteMobileNetV3":
@@ -299,7 +304,7 @@ class Trainer:
                         gt_labels = target['labels'].cpu()
 
                         # Filter low-confidence predictions (optional)
-                        keep = pred_scores > 0.3
+                        keep = pred_scores > 0.6
                         pred_boxes = pred_boxes[keep]
                         pred_labels = pred_labels[keep]
 
