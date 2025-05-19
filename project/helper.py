@@ -16,8 +16,8 @@ import json
 import pandas as pd
 from torchvision import transforms
 
-from torchmetrics import ConfusionMatrix
-from mlxtend.plotting import plot_confusion_matrix
+# from torchmetrics import ConfusionMatrix
+# from mlxtend.plotting import plot_confusion_matrix
 
 def get_device():
     """
@@ -49,30 +49,30 @@ def convert_for_submission(data, output_file):
     return ...
 
 
-def get_confussion_matrix(y_pred, y_true, num_classes, class_names):
-    """
-    Generate and plot a confusion matrix for the model predictions.
-    Args:
-        y_pred (torch.Tensor): Model predictions.
-        y_true (torch.Tensor): True labels.
-        num_classes (int): Number of classes.
-        class_names (list): List of class names.
-    """
-    # Compute confusion matrix using torchmetrics (multiclass, not multilabel)
-    confmat = ConfusionMatrix(task="multiclass", num_classes=num_classes)
-    confmat_tensor = confmat(preds=y_pred, target=y_true)
+# def get_confussion_matrix(y_pred, y_true, num_classes, class_names):
+#     """
+#     Generate and plot a confusion matrix for the model predictions.
+#     Args:
+#         y_pred (torch.Tensor): Model predictions.
+#         y_true (torch.Tensor): True labels.
+#         num_classes (int): Number of classes.
+#         class_names (list): List of class names.
+#     """
+#     # Compute confusion matrix using torchmetrics (multiclass, not multilabel)
+#     confmat = ConfusionMatrix(task="multiclass", num_classes=num_classes)
+#     confmat_tensor = confmat(preds=y_pred, target=y_true)
 
-    # Convert to numpy and plot
-    fig, ax = plot_confusion_matrix(
-        conf_mat=confmat_tensor.numpy()[1:, 1:],  # drop background row/col
-        colorbar=True,
-        show_normed=True,
-        figsize=(10, 7),
-        class_names=class_names
-    )
+#     # Convert to numpy and plot
+#     fig, ax = plot_confusion_matrix(
+#         conf_mat=confmat_tensor.numpy()[1:, 1:],  # drop background row/col
+#         colorbar=True,
+#         show_normed=True,
+#         figsize=(10, 7),
+#         class_names=class_names
+#     )
 
-    plt.savefig("confusion_matrix.png")
-    plt.show()
+#     plt.savefig("confusion_matrix.png")
+#     plt.show()
 
 def unzip_to(zip_path: str, dest_dir: str) -> None:
     """

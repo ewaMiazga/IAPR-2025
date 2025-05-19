@@ -7,3 +7,5 @@ data*
 results/
 outputs/
 sketch.ipynb
+env.txt
+environment-ewa.yml
