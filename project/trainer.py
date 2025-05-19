@@ -380,3 +380,71 @@ class Trainer:
         return avg_loss, overall_accuracy, overall_f1, per_class_f1
         
         
+    def get_val_predictions(self, iou_threshold=0.5, conf_threshold=0.6):
+        """
+        Run the model on the validation set and return matched ground-truth and predicted class labels.
+        Useful for computing confusion matrix and classification report.
+        
+        Returns:
+            - y_true: list of matched ground-truth class labels
+            - y_pred: list of predicted class labels (for matched GTs)
+        """
+        self.model.eval()
+
+        y_true = []
+        y_pred = []
+
+        with torch.no_grad():
+            for images, labels in tqdm(self.val_loader, desc="Extracting predictions"):
+
+                if self.model_name == "SimpleCNN":
+                    inputs = images.to(self.device)
+                    targets = labels.to(self.device)
+                    outputs = self.model(inputs)
+                    preds = torch.argmax(outputs, dim=1)
+                    y_true.extend(targets.cpu().tolist())
+                    y_pred.extend(preds.cpu().tolist())
+
+                elif self.model_name in ["SSDLiteMobileNetV3", "MobileNetV3"]:
+                    image_tensors = [img.to(self.device) for img in images]
+                    targets = [{k: v.to(self.device) for k, v in t.items()} for t in labels]
+
+                    outputs = self.model(image_tensors)
+
+                    for pred, target in zip(outputs, targets):
+                        pred_boxes = pred['boxes'].cpu()
+                        pred_scores = pred['scores'].cpu()
+                        pred_labels = pred['labels'].cpu()
+                        gt_boxes = target['boxes'].cpu()
+                        gt_labels = target['labels'].cpu()
+
+                        # Filter low-confidence predictions
+                        keep = pred_scores > conf_threshold
+                        pred_boxes = pred_boxes[keep]
+                        pred_labels = pred_labels[keep]
+
+                        matched_pred_idxs = set()
+
+                        for gt_idx, gt_box in enumerate(gt_boxes):
+                            best_iou = 0
+                            best_pred_idx = -1
+                            for pred_idx, pred_box in enumerate(pred_boxes):
+                                if pred_idx in matched_pred_idxs:
+                                    continue
+                                iou = self.compute_iou(gt_box, pred_box)
+                                if iou > best_iou:
+                                    best_iou = iou
+                                    best_pred_idx = pred_idx
+
+                            if best_iou >= iou_threshold:
+                                matched_pred_idxs.add(best_pred_idx)
+                                y_true.append(gt_labels[gt_idx].item())
+                                y_pred.append(pred_labels[best_pred_idx].item())
+                            else:
+                                y_true.append(gt_labels[gt_idx].item())
+                                y_pred.append(-1)  # unmatched → "missed"
+
+                else:
+                    raise ValueError(f"Unsupported model: {self.model_name}")
+
+        return y_true, y_pred
