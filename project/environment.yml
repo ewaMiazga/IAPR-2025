@@ -1,4 +1,4 @@
-name: iapr_project
+name: iapr_project_temp
 dependencies:
   - python == 3.9.*
   - pip

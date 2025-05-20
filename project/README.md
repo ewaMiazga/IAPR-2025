@@ -3,10 +3,6 @@
 **Moodle:** 🔗 https://moodle.epfl.ch/course/view.php?id=5091#section-10
 
 **Kaggle:**
-- **Chocolate Recognition (Classic)**  
-🔗 https://www.kaggle.com/competitions/chocolate-recognition-classic  
-For solutions **not using deep learning**
-
 - **Chocolate Recognition (Deep Learning)**  
 🔗 https://www.kaggle.com/competitions/chocolate-recognition-ml  
 For solutions **using deep learning**
@@ -23,21 +19,32 @@ Otherwise, you can use `pip` directly:
 ```
 pip install -r requirements.txt
 ```
+## Dataset
+
+To run `main.py` successfully, please ensure that the test folder is located inside your dataset directory.
+For your convenience, the script includes a global variable named `DATASET_DIR`, where you can specify the path to your dataset.
 
 ## Folder structure
 ```
-📁 src/                     # Put here all auxiliary scripts needed by main.py
+📁 src/                     # Here are all auxiliary scripts needed by main.py
+📁 models/                  # Here are all the models implemented
+📁 images/                  # Files which contain the graphs and results for the report
+📁 checkpoints/                  # Folder containing all the checkpoints - weights for the models we mention in the report.
+📁 sample_csv/              # Template to generate final submission csv
 📄 check.py                 # Script for checking the validity and reproducibility of the submission
 📄 environment.yml          # Configuration file for creating the conda environment
 📄 main.py                  # The executable script that produces the Kaggle submission file
-📄 report.ipynb             # The report file for you to fill
+📄 report.ipynb             # The report describing work on the project
 📄 requirements.txt         # File containing the list and versions of allowed libraries
-📄 sample_submission.csv    # Example of valid submission file
+📄 csv_output/final_submission.csv    # Final submission made to kaggle website
+📄 .gitignore               # Ignore files that you dont want to add to the remote repo
+📄 create_dataset.ipynb     # Jupyter notebook that enables recreating all the datasets used for training any model in project
+📄 train_models.ipynb      # Jupyter notebook that trains all the models used in the project
 ```
 
 ### `main.py`
 
-The `main.py` script must be runnable with the environment specified by `environment.yml`/`requirements.txt` and it must generate the submission file with name `submission.csv`.
+The `main.py` script is runnable with the environment specified by `environment.yml`/`requirements.txt` and it generates the submission file with name `csv_output/submission.csv`.
 
 ### `check.py`
 
@@ -74,13 +81,4 @@ optional arguments:
   -h, --help       show this help message and exit
   --local LOCAL    path of local submission file (default: 'submission.csv')
   --kaggle KAGGLE  path of Kaggle submission file (default: 'kaggle.csv')
-```
-
-## Submission
-Your submission must contain (at least) the following:
-```
-📁 src/                         # All auxiliary scripts needed by main.py
-📄 main.py                      # The executable script that produces the Kaggle submission file
-📄 report.ipynb / report.pdf    # The final Jupyter Notebook report (to be submitted as PDF or ipynb)
-📄 checkpoint.pt                # (optional) the checkpoint of your model (for the ML challenge)
 ```

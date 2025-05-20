@@ -9,3 +9,8 @@ outputs/
 sketch.ipynb
 env.txt
 environment-ewa.yml
+*.csv
+
+# to be deleted
+report_dirty.ipynb
+report.ipynb
